@@ -3,7 +3,6 @@ extern crate serde_json;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-#[derive(Serialize, Deserialize)]
 struct DayPrice {
     price: f64,
     timestamp: u64,
@@ -28,6 +27,24 @@ struct OhlcData {
 #[derive(Serialize, Deserialize)]
 struct BitstampPriceData {
     data: OhlcData,
+}
+// portfolio,type,time,amount,balance,amount/balance unit,transfer id,trade id,order id
+#[derive(Debug, Deserialize)]
+struct TradeRecord {
+    portfolio: String,
+    #[serde(rename = "type")]
+    action: String,
+    time: String,
+    amount: f64,
+    balance: f64,
+    #[serde(rename = "amount/balance unit")]
+    unit: String,
+    #[serde(rename = "transfer id")]
+    transfer_id: String,
+    #[serde(rename = "trade id")]
+    trade_id: String,
+    #[serde(rename = "order id")]
+    order_id: String,
 }
 
 fn main() {
@@ -55,5 +72,12 @@ fn main() {
 
     for daily in daily_prices.iter() {
         println!("{} {}", daily.timestamp, daily.price)
+    }
+
+    // Get the CSV data
+    let mut rdr = csv::Reader::from_path("./trades/trades.csv").unwrap();
+    for result in rdr.deserialize() {
+        let record: TradeRecord = result.unwrap();
+        println!("{:?}", record);
     }
 }
