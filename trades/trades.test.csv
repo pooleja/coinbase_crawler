@@ -1,0 +1,6 @@
+portfolio,type,time,amount,balance,amount/balance unit,transfer id,trade id,order id
+default,deposit,2015-02-03T14:39:10.685Z,1,1,BTC,7c8963a5-3a98-4adc-87c5-7489f3ecca82,,
+default,deposit,2016-02-03T14:39:10.685Z,1,1,BTC,7c8963a5-3a98-4adc-87c5-7489f3ecca82,,
+default,withdrawal,2015-06-09T14:51:55.344Z,-1.0000000000000000,14.9451866700000000,BTC,05e7b35a-e2d9-4aab-8666-10ccfd5e6268,,
+default,match,2016-03-03T14:39:36.601Z,-1,0,BTC,,63321,6b358acf-fd5b-46d9-80ac-db510fb5e854
+default,match,2016-03-03T14:39:36.601Z,368.4,100,USD,,63321,6b358acf-fd5b-46d9-80ac-db510fb5e854

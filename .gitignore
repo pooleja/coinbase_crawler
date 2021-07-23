@@ -11,3 +11,6 @@ Cargo.lock
 
 # Don't want to actually commit trades file
 /trades/trades.csv
+
+# Don't want ot actually commit deposit cost basis files
+/deposits/deposits.csv
