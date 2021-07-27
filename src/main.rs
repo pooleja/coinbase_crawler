@@ -174,12 +174,12 @@ struct YearlySummary {
     rebates: f64,
     short_term_gains: f64,
     long_term_gains: f64,
+    total_sales: f64,
+    total_buys: f64,
 }
 
 fn main() {
     let mut daily_prices: Vec<DayPrice> = Vec::new();
-    let mut yearly_fees: HashMap<i32, f64> = HashMap::new();
-    let mut yearly_rebates: HashMap<i32, f64> = HashMap::new();
     let mut known_lots: VecDeque<KnownLot> = VecDeque::new();
     let mut yearly_summary: HashMap<i32, YearlySummary> = HashMap::new();
 
@@ -200,8 +200,6 @@ fn main() {
         }
 
         // Init to 0
-        yearly_fees.insert(n, 0_f64);
-        yearly_rebates.insert(n, 0_f64);
         yearly_summary.insert(
             n,
             YearlySummary {
@@ -209,6 +207,8 @@ fn main() {
                 rebates: 0_f64,
                 short_term_gains: 0_f64,
                 long_term_gains: 0_f64,
+                total_sales: 0_f64,
+                total_buys: 0_f64,
             },
         );
     }
@@ -225,6 +225,11 @@ fn main() {
     let mut record_itr: csv::DeserializeRecordsIter<'_, std::fs::File, TradeRecord> =
         rdr.deserialize();
 
+    let mut found_year = 2015;
+
+    // Create the writer for the output
+    let mut wtr = csv::Writer::from_path(std::format!("./output/{}.csv", found_year)).unwrap();
+
     // Iterate over the rows...
     while let Some(item) = record_itr.next() {
         let record = item.unwrap();
@@ -232,6 +237,14 @@ fn main() {
 
         // Get the record year
         let year = get_year_from_record(&record);
+
+        if found_year != year {
+            found_year = year;
+            println!("beginning of {} {:?}", found_year, known_lots);
+
+            wtr.flush().unwrap();
+            wtr = csv::Writer::from_path(std::format!("./output/{}.csv", found_year)).unwrap();
+        }
 
         match record.action.as_str() {
             "deposit" => {
@@ -300,7 +313,7 @@ fn main() {
                         let lot_usd_earned = usd_earned * lot_percent;
 
                         // Get the amount of crypto that was sold
-                        let _crypto_sold = raw_amount * lot_percent;
+                        let crypto_sold = raw_amount * lot_percent;
 
                         // Get the total gain or loss - if earned more that cost basis, it is a gain... negative is a loss
                         let gain_or_loss = lot_usd_earned - lot.cost_basis;
@@ -310,15 +323,36 @@ fn main() {
                         let lot_date = DateTime::parse_from_rfc3339(&lot.date).unwrap();
                         let seconds_in_a_year = 31536000;
 
+                        let mut short_term = 0_f64;
+                        let mut long_term = 0_f64;
+
                         if record_date.timestamp() - lot_date.timestamp() > seconds_in_a_year {
                             // Long term
                             let summary = yearly_summary.get_mut(&year).unwrap();
                             summary.long_term_gains += gain_or_loss;
+                            summary.total_sales += lot_usd_earned;
+                            long_term = gain_or_loss;
                         } else {
                             // Short term
                             let summary = yearly_summary.get_mut(&year).unwrap();
                             summary.short_term_gains += gain_or_loss;
+                            summary.total_sales += lot_usd_earned;
+                            short_term = gain_or_loss;
                         }
+
+                        wtr.write_record(&[
+                            record.time.clone(),
+                            record.trade_id.clone(),
+                            record.transfer_id.clone(),
+                            record.order_id.clone(),
+                            crypto_sold.to_string(),
+                            lot_usd_earned.to_string(),
+                            lot.date,
+                            lot.cost_basis.to_string(),
+                            long_term.to_string(),
+                            short_term.to_string(),
+                        ])
+                        .unwrap();
                     }
                 } else {
                     // Buys add to known lots
@@ -331,6 +365,9 @@ fn main() {
                     };
                     // println!("Buy - {:?}", lot);
                     known_lots.push_back(lot);
+
+                    let summary = yearly_summary.get_mut(&year).unwrap();
+                    summary.total_buys += next_item.amount * -1_f64
                 }
             }
             "withdrawal" => {
@@ -349,22 +386,26 @@ fn main() {
                 // Check what unit the fee is in
                 if record.unit == "USD" {
                     // Save off the fee
-                    *yearly_fees.entry(year).or_insert(0_f64) += record.amount;
+                    let summary = yearly_summary.get_mut(&year).unwrap();
+                    summary.fees += record.amount;
                 } else if record.unit == "BTC" {
                     // Calculate the USD amount
                     let price = get_price_for_date(&record.time, &daily_prices);
-                    *yearly_fees.entry(year).or_insert(0_f64) += price * record.amount;
+                    let summary = yearly_summary.get_mut(&year).unwrap();
+                    summary.fees += price * record.amount;
                 }
             }
             "rebate" => {
                 // Check what unit the rebate is in
                 if record.unit == "USD" {
                     // Save off the rebate
-                    *yearly_rebates.entry(year).or_insert(0_f64) += record.amount;
+                    let summary = yearly_summary.get_mut(&year).unwrap();
+                    summary.rebates += record.amount;
                 } else if record.unit == "BTC" {
                     // Calculate the USD amount
                     let price = get_price_for_date(&record.time, &daily_prices);
-                    *yearly_rebates.entry(year).or_insert(0_f64) += price * record.amount;
+                    let summary = yearly_summary.get_mut(&year).unwrap();
+                    summary.rebates += price * record.amount;
                 }
             }
             "conversion" => println!("Ignoring Conversion"),
@@ -392,8 +433,21 @@ fn main() {
     //     println!("{}: {}", key, value);
     // }
 
+    wtr.flush().unwrap();
+
     println!("Yearly summary");
     for (key, value) in &yearly_summary {
-        println!("{}: {:?}", key, value);
+        println!(
+            "{},{},{},{},{},{},{}",
+            key,
+            value.fees,
+            value.rebates,
+            value.short_term_gains,
+            value.long_term_gains,
+            value.total_sales,
+            value.total_buys,
+        );
     }
+
+    println!("Ending lots {:?}", known_lots);
 }
