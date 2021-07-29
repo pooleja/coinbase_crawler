@@ -91,7 +91,10 @@ fn remove_known_lots_for_amt(amount: f64, known_lots: &mut VecDeque<KnownLot>) -
 
     loop {
         if known_lots.len() == 0 {
-            println!("Ran out of lots!!! {} {}", amount, total_of_lots);
+            println!(
+                "Ran out of lots due to f_64 rounding!!! Expected at least {}, Using cost basis of this amount {}",
+                amount, total_of_lots
+            );
             break;
         }
 
@@ -229,6 +232,18 @@ fn main() {
 
     // Create the writer for the output
     let mut wtr = csv::Writer::from_path(std::format!("./output/{}.csv", found_year)).unwrap();
+    wtr.write_record(&[
+        "Date",
+        "Trade ID",
+        "Order ID",
+        "Crypto Sold",
+        "USD Value Sold",
+        "Crypto Acquire Date",
+        "Cost Basis",
+        "Long Term Gains/Loss",
+        "Short Term Gains/Loss",
+    ])
+    .unwrap();
 
     // Iterate over the rows...
     while let Some(item) = record_itr.next() {
@@ -240,10 +255,23 @@ fn main() {
 
         if found_year != year {
             found_year = year;
-            println!("beginning of {} {:?}", found_year, known_lots);
+            // println!("beginning of {} {:?}", found_year, known_lots);
 
+            // Start a new output file for a new year
             wtr.flush().unwrap();
             wtr = csv::Writer::from_path(std::format!("./output/{}.csv", found_year)).unwrap();
+            wtr.write_record(&[
+                "Date",
+                "Trade ID",
+                "Order ID",
+                "Crypto Sold",
+                "USD Value Sold",
+                "Crypto Acquire Date",
+                "Cost Basis",
+                "Long Term Gains/Loss",
+                "Short Term Gains/Loss",
+            ])
+            .unwrap();
         }
 
         match record.action.as_str() {
@@ -259,7 +287,7 @@ fn main() {
                 match known_lot_override {
                     // Override found
                     Some(basis) => {
-                        println!("Deposit cost basis override {:?}", basis);
+                        // println!("Deposit cost basis override {:?}", basis);
 
                         known_lots.push_back(basis);
                     }
@@ -272,7 +300,7 @@ fn main() {
                             date: record.time,
                             cost_basis: price * record.amount,
                         };
-                        println!("Deposit {:?}", lot);
+                        // println!("Deposit {:?}", lot);
                         // Add deposit to known lots
                         known_lots.push_back(lot);
                     }
@@ -408,46 +436,47 @@ fn main() {
                     summary.rebates += price * record.amount;
                 }
             }
-            "conversion" => println!("Ignoring Conversion"),
+            // Ignore conversions as they are not taxable
+            "conversion" => continue,
             _ => {
                 println!("{:?}", record.action);
                 panic!("Unknown Action")
             }
         }
     }
-    // while current.is_some() {
-    //     let record = current.unwrap().unwrap();
-    // }
-    // for result in rdr.deserialize() {
-    //     let record: TradeRecord = result.unwrap();
-    //     println!("{:?}", record);
-    // }
-
-    // println!("Yearly fees");
-    // for (key, value) in &yearly_fees {
-    //     println!("{}: {}", key, value);
-    // }
-
-    // println!("Yearly rebates");
-    // for (key, value) in &yearly_rebates {
-    //     println!("{}: {}", key, value);
-    // }
 
     wtr.flush().unwrap();
 
-    println!("Yearly summary");
+    // Write out yearly summary
+    let mut summary_writer = csv::Writer::from_path("./output/summary.csv").unwrap();
+
+    summary_writer
+        .write_record(&[
+            "Year",
+            "Fees",
+            "Rebates",
+            "Short Term Gains",
+            "Long Term Gains",
+            "Total Sales",
+            "Total Buys",
+        ])
+        .unwrap();
+
     for (key, value) in &yearly_summary {
-        println!(
-            "{},{},{},{},{},{},{}",
-            key,
-            value.fees,
-            value.rebates,
-            value.short_term_gains,
-            value.long_term_gains,
-            value.total_sales,
-            value.total_buys,
-        );
+        summary_writer
+            .write_record(&[
+                key.to_string(),
+                value.fees.to_string(),
+                value.rebates.to_string(),
+                value.short_term_gains.to_string(),
+                value.long_term_gains.to_string(),
+                value.total_sales.to_string(),
+                value.total_buys.to_string(),
+            ])
+            .unwrap();
     }
 
-    println!("Ending lots {:?}", known_lots);
+    summary_writer.flush().unwrap();
+
+    // println!("Ending lots {:?}", known_lots);
 }

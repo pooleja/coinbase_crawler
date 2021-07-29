@@ -17,3 +17,5 @@ Cargo.lock
 
 # Don't check in output reports
 /output/*.csv
+
+.DS_Store
