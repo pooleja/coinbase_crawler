@@ -2,14 +2,14 @@ extern crate serde;
 extern crate serde_json;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fs;
-
-struct DayPrice {
-    price: f64,
-    timestamp: i64,
-}
+extern crate chrono;
+use chrono::prelude::DateTime;
+use chrono::Utc;
+use std::time::{Duration, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize)]
 struct Ohlc {
@@ -62,30 +62,29 @@ fn get_year_from_record(record: &TradeRecord) -> i32 {
     rfc3339.year()
 }
 
-// Not very efficient
-fn get_price_for_date(date: &String, daily_prices: &Vec<DayPrice>) -> f64 {
+// Get price from the map
+fn get_price_for_date(date: &String, daily_prices: &BTreeMap<String, f64>) -> f64 {
     let rfc3339 = DateTime::parse_from_rfc3339(&date).unwrap();
+    let timestamp_str = rfc3339.format("%Y-%m-%d").to_string();
 
-    // Iterate over the prices from the beginning until a price earlier is found
-    for price in daily_prices.iter() {
-        if rfc3339.timestamp() < price.timestamp {
-            return price.price;
-        }
-    }
+    let price = daily_prices.get(&timestamp_str);
 
-    let last = daily_prices.last().unwrap();
-    println!("{} {} {}", date, last.timestamp, rfc3339.timestamp());
-
-    panic!("Price not found");
+    return *price.unwrap();
 }
 
 fn round_to_8(num: f64) -> f64 {
     (num * 100000000_f64).round() / 100000000_f64
 }
 
+// For the i64 timestamp, convert to a day string in a standard format
+fn get_day_str(timestamp: i64) -> String {
+    let d = UNIX_EPOCH + Duration::from_secs(timestamp as u64);
+    let date_time = DateTime::<Utc>::from(d);
+    let timestamp_str = date_time.format("%Y-%m-%d").to_string();
+    return timestamp_str;
+}
+
 fn remove_known_lots_for_amt(amount: f64, known_lots: &mut VecDeque<KnownLot>) -> Vec<KnownLot> {
-    // println!("looking for lots that add up to {}", amount);
-    // println!("{:?}", known_lots);
     let mut found_lots: Vec<KnownLot> = Vec::new();
     let mut total_of_lots = 0_f64;
 
@@ -100,8 +99,6 @@ fn remove_known_lots_for_amt(amount: f64, known_lots: &mut VecDeque<KnownLot>) -
 
         let lot = known_lots.pop_front().unwrap();
         total_of_lots = round_to_8(total_of_lots + lot.balance);
-
-        // println!("{} {} ", total_of_lots, amount);
 
         // 3 scenarios
         if total_of_lots == amount {
@@ -182,9 +179,10 @@ struct YearlySummary {
 }
 
 fn main() {
-    let mut daily_prices: Vec<DayPrice> = Vec::new();
     let mut known_lots: VecDeque<KnownLot> = VecDeque::new();
     let mut yearly_summary: HashMap<i32, YearlySummary> = HashMap::new();
+
+    let mut prices_map: BTreeMap<String, f64> = BTreeMap::new();
 
     // Read in price files and initialize vectors
     for n in 2015..=2020 {
@@ -196,10 +194,13 @@ fn main() {
 
         // Iterate over all the prices
         for ohlc in parsed_json.data.ohlc.iter() {
-            // Convert and add to the list
+            // Get raw values
             let timestamp: i64 = ohlc.timestamp.parse().unwrap();
             let price: f64 = ohlc.open.parse().unwrap();
-            daily_prices.push(DayPrice { price, timestamp })
+
+            // Get day string and insert to price lookup mp
+            let day_str = get_day_str(timestamp);
+            prices_map.insert(day_str, price);
         }
 
         // Init to 0
@@ -215,13 +216,6 @@ fn main() {
             },
         );
     }
-
-    // Sort the prices by day timestamp just in case
-    daily_prices.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
-
-    // for daily in daily_prices.iter() {
-    //     println!("{} {}", daily.timestamp, daily.price)
-    // }
 
     // Get the CSV data
     let mut rdr = csv::Reader::from_path("./trades/trades.csv").unwrap();
@@ -293,7 +287,7 @@ fn main() {
                     }
                     // No override, use the daily price
                     None => {
-                        let price = get_price_for_date(&record.time, &daily_prices);
+                        let price = get_price_for_date(&record.time, &prices_map);
 
                         let lot = KnownLot {
                             balance: record.amount,
@@ -371,7 +365,6 @@ fn main() {
                         wtr.write_record(&[
                             record.time.clone(),
                             record.trade_id.clone(),
-                            record.transfer_id.clone(),
                             record.order_id.clone(),
                             crypto_sold.to_string(),
                             lot_usd_earned.to_string(),
@@ -418,7 +411,7 @@ fn main() {
                     summary.fees += record.amount;
                 } else if record.unit == "BTC" {
                     // Calculate the USD amount
-                    let price = get_price_for_date(&record.time, &daily_prices);
+                    let price = get_price_for_date(&record.time, &prices_map);
                     let summary = yearly_summary.get_mut(&year).unwrap();
                     summary.fees += price * record.amount;
                 }
@@ -431,7 +424,7 @@ fn main() {
                     summary.rebates += record.amount;
                 } else if record.unit == "BTC" {
                     // Calculate the USD amount
-                    let price = get_price_for_date(&record.time, &daily_prices);
+                    let price = get_price_for_date(&record.time, &prices_map);
                     let summary = yearly_summary.get_mut(&year).unwrap();
                     summary.rebates += price * record.amount;
                 }
